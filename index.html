@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sudoku — Puzzle Game with Generator &amp; Solver</title>
+<meta name="description" content="A self-contained Sudoku game with a backtracking generator and solver. Every generated puzzle is guaranteed to have exactly one solution." />
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --panel: #ffffff;
+    --ink: #16202f;
+    --muted: #64748b;
+    --brand: #2563eb;
+    --brand-soft: rgba(37, 99, 235, .14);
+    --given: #16202f;
+    --user: #2563eb;
+    --bad: #dc2626;
+    --ok: #16a34a;
+    --line: #cbd5e1;
+    --line-strong: #475569;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; justify-content: center; padding: 28px 14px 44px;
+  }
+  main { width: 100%; max-width: 560px; }
+  h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: -0.02em; }
+  .sub { margin: 0 0 18px; color: var(--muted); font-size: 15px; }
+
+  .boardwrap {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+  }
+  #board {
+    display: grid; grid-template-columns: repeat(9, 1fr);
+    gap: 0; border: 2px solid var(--line-strong); border-radius: 8px;
+    overflow: hidden; background: var(--line-strong);
+  }
+  .cell {
+    aspect-ratio: 1; background: var(--panel);
+    display: flex; align-items: center; justify-content: center;
+    font-size: clamp(16px, 4.2vw, 22px); font-weight: 600;
+    cursor: pointer; user-select: none; position: relative;
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .cell.br { border-right: 2px solid var(--line-strong); }
+  .cell.bb { border-bottom: 2px solid var(--line-strong); }
+  .cell.given { color: var(--given); font-weight: 700; }
+  .cell.user { color: var(--user); }
+  .cell.conflict { background: #fee2e2; color: var(--bad); }
+  .cell.selected { background: var(--brand-soft); }
+  .cell.sameval { background: #eef2ff; }
+  .cell:nth-child(9n) { border-right: none; }
+  .cell:nth-child(n+73) { border-bottom: none; }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .pad { margin-top: 14px; }
+  .pad button { width: 42px; height: 42px; font-size: 18px; font-weight: 700; padding: 0; }
+  button {
+    font: inherit; font-weight: 600; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink);
+    border-radius: 10px; padding: 9px 14px; cursor: pointer;
+    transition: background .12s ease, border-color .12s ease, color .12s ease;
+  }
+  button:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .primary:hover:not(:disabled) { background: #1d4ed8; color: #fff; }
+  .controls { margin-top: 12px; }
+  .controls button { font-size: 14px; }
+  select {
+    font: inherit; font-size: 14px; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink);
+  }
+  #status { margin-top: 14px; font-weight: 600; min-height: 22px; text-align: center; font-size: 15px; }
+  #status.ok { color: var(--ok); }
+  #status.bad { color: var(--bad); }
+  .hintline { text-align: center; font-size: 13px; color: var(--muted); margin-top: 12px; }
+
+  .more {
+    margin-top: 24px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px;
+  }
+  .more h2 { margin: 0 0 10px; font-size: 15px; }
+  .more ul { margin: 0; padding-left: 18px; }
+  .more li { margin: 5px 0; font-size: 15px; }
+  .more a { color: var(--brand); text-decoration: none; font-weight: 600; }
+  .more a:hover { text-decoration: underline; }
+  .more span { color: var(--muted); }
+  footer { margin-top: 22px; text-align: center; color: var(--muted); font-size: 14px; }
+  footer a { color: var(--brand); text-decoration: none; font-weight: 600; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sudoku</h1>
+  <p class="sub">Fill every row, column and 3&times;3 box with 1–9. Every puzzle here is generated with <b>exactly one solution</b>.</p>
+
+  <div class="boardwrap">
+    <div id="board"></div>
+
+    <div class="row pad" id="pad"></div>
+
+    <div class="row controls">
+      <button id="hint">Hint</button>
+      <button id="check">Check</button>
+      <button id="solve">Solve it</button>
+      <select id="difficulty" aria-label="Difficulty">
+        <option value="36">Easy</option>
+        <option value="45" selected>Medium</option>
+        <option value="52">Hard</option>
+      </select>
+      <button id="new" class="primary">New game</button>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <p class="hintline">Tap a cell, then press 1–9 (or 0 / Backspace to erase). Arrow keys move around the grid.</p>
+
+  <section class="more">
+    <h2>More logic puzzles</h2>
+    <ul>
+      <li><a href="https://iqiqgame.com/play/play-sudoku-online-free-game" target="_blank" rel="noopener">Sudoku</a> <span>— the full online version with pencil marks and hints.</span></li>
+      <li><a href="https://iqiqgame.com/play/play-killer-sudoku-online-free" target="_blank" rel="noopener">Killer Sudoku</a> <span>— sudoku meets arithmetic cages.</span></li>
+      <li><a href="https://iqiqgame.com/play/play-arrow-sudoku-online-free-game" target="_blank" rel="noopener">Arrow Sudoku</a> <span>— arrows constrain the digits along their path.</span></li>
+      <li><a href="https://iqiqgame.com/blog/how-to-play-sudoku-rules-beginner-techniques" target="_blank" rel="noopener">Sudoku techniques</a> <span>— the beginner patterns, explained.</span></li>
+    </ul>
+  </section>
+
+  <footer>
+    Built by Fang Yuchuang · more free brain and puzzle games at
+    <a href="https://iqiqgame.com/" target="_blank" rel="noopener">iQiQGame</a>.
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- core -------------------------------------------------------
+     Board is a flat Int8Array-like array of 81 values, 0 = empty.
+  ------------------------------------------------------------------------ */
+
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  function isValid(board, idx, n) {
+    const r = (idx / 9) | 0, c = idx % 9;
+    for (let i = 0; i < 9; i++) {
+      if (board[r * 9 + i] === n) return false;
+      if (board[i * 9 + c] === n) return false;
+    }
+    const br = ((r / 3) | 0) * 3, bc = ((c / 3) | 0) * 3;
+    for (let i = 0; i < 3; i++)
+      for (let j = 0; j < 3; j++)
+        if (board[(br + i) * 9 + bc + j] === n) return false;
+    return true;
+  }
+
+  // Fill a blank board completely (randomised backtracking).
+  function fill(board) {
+    const idx = board.indexOf(0);
+    if (idx === -1) return true;
+    for (const n of shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9])) {
+      if (isValid(board, idx, n)) {
+        board[idx] = n;
+        if (fill(board)) return true;
+        board[idx] = 0;
+      }
+    }
+    return false;
+  }
+
+  // Count solutions, stopping early once `limit` is reached.
+  function countSolutions(board, limit) {
+    const work = board.slice();
+    let count = 0;
+    (function rec() {
+      const idx = work.indexOf(0);
+      if (idx === -1) { count++; return; }
+      for (let n = 1; n <= 9; n++) {
+        if (isValid(work, idx, n)) {
+          work[idx] = n;
+          rec();
+          work[idx] = 0;
+          if (count >= limit) return;
+        }
+      }
+    })();
+    return count;
+  }
+
+  // Dig holes out of a solved board, keeping the puzzle uniquely solvable.
+  function makePuzzle(holes) {
+    const solved = new Array(81).fill(0);
+    fill(solved);
+    const puzzle = solved.slice();
+    const order = shuffle(Array.from({ length: 81 }, (_, i) => i));
+    let removed = 0;
+    for (const idx of order) {
+      if (removed >= holes) break;
+      const backup = puzzle[idx];
+      puzzle[idx] = 0;
+      if (countSolutions(puzzle, 2) !== 1) puzzle[idx] = backup;
+      else removed++;
+    }
+    return { puzzle: puzzle, solution: solved };
+  }
+
+  function solveBoard(board) {
+    const work = board.slice();
+    return fill(work) ? work : null;
+  }
+
+  /* ---------- state ------------------------------------------------------ */
+  var puzzle = [], solution = [], given = [], selected = -1;
+
+  var boardEl = document.getElementById("board");
+  var padEl = document.getElementById("pad");
+  var statusEl = document.getElementById("status");
+  var diffEl = document.getElementById("difficulty");
+  var hintBtn = document.getElementById("hint");
+  var checkBtn = document.getElementById("check");
+  var solveBtn = document.getElementById("solve");
+  var newBtn = document.getElementById("new");
+
+  var cells = [];
+
+  function buildGrid() {
+    boardEl.innerHTML = "";
+    cells = [];
+    for (let i = 0; i < 81; i++) {
+      const el = document.createElement("div");
+      el.className = "cell";
+      const r = (i / 9) | 0, c = i % 9;
+      if (c === 2 || c === 5) el.classList.add("br");
+      if (r === 2 || r === 5) el.classList.add("bb");
+      el.addEventListener("click", function () { select(i); });
+      boardEl.appendChild(el);
+      cells.push(el);
+    }
+  }
+
+  function newGame() {
+    statusEl.textContent = "Generating…";
+    statusEl.className = "";
+    // let the "Generating…" paint before the (blocking) generation runs
+    setTimeout(function () {
+      const holes = Number(diffEl.value);
+      const made = makePuzzle(holes);
+      puzzle = made.puzzle;
+      solution = made.solution;
+      given = puzzle.map(function (v) { return v !== 0; });
+      selected = -1;
+      statusEl.textContent = "";
+      render();
+    }, 20);
+  }
+
+  function select(i) { selected = i; render(); }
+
+  function conflictsAt(idx) {
+    const v = puzzle[idx];
+    if (!v) return false;
+    const r = (idx / 9) | 0, c = idx % 9;
+    for (let i = 0; i < 9; i++) {
+      if (i !== c && puzzle[r * 9 + i] === v) return true;
+      if (i !== r && puzzle[i * 9 + c] === v) return true;
+    }
+    const br = ((r / 3) | 0) * 3, bc = ((c / 3) | 0) * 3;
+    for (let i = 0; i < 3; i++)
+      for (let j = 0; j < 3; j++) {
+        const k = (br + i) * 9 + bc + j;
+        if (k !== idx && puzzle[k] === v) return true;
+      }
+    return false;
+  }
+
+  function render() {
+    const selVal = selected >= 0 ? puzzle[selected] : 0;
+    for (let i = 0; i < 81; i++) {
+      const el = cells[i], v = puzzle[i];
+      el.textContent = v ? String(v) : "";
+      el.className = "cell";
+      const r = (i / 9) | 0, c = i % 9;
+      if (c === 2 || c === 5) el.classList.add("br");
+      if (r === 2 || r === 5) el.classList.add("bb");
+      if (given[i]) el.classList.add("given");
+      else if (v) el.classList.add("user");
+      if (v && conflictsAt(i)) el.classList.add("conflict");
+      if (i === selected) el.classList.add("selected");
+      else if (selVal && v === selVal) el.classList.add("sameval");
+    }
+  }
+
+  function setValue(n) {
+    if (selected < 0 || given[selected]) return;
+    puzzle[selected] = n;
+    render();
+    if (isComplete()) {
+      const wrong = puzzle.some(function (v, i) { return v !== solution[i]; });
+      if (!wrong && !puzzle.some(function (_, i) { return conflictsAt(i); })) {
+        flash("Solved. Nice.", "ok");
+      }
+    } else if (statusEl.classList.contains("bad")) {
+      statusEl.textContent = ""; statusEl.className = "";
+    }
+  }
+
+  function isComplete() {
+    return puzzle.every(function (v) { return v !== 0; });
+  }
+
+  function flash(msg, kind) {
+    statusEl.textContent = msg;
+    statusEl.className = kind;
+  }
+
+  function buildPad() {
+    padEl.innerHTML = "";
+    for (let n = 1; n <= 9; n++) {
+      (function (num) {
+        const b = document.createElement("button");
+        b.textContent = String(num);
+        b.addEventListener("click", function () { setValue(num); });
+        padEl.appendChild(b);
+      })(n);
+    }
+    const e = document.createElement("button");
+    e.textContent = "⌫";
+    e.title = "Erase";
+    e.addEventListener("click", function () { setValue(0); });
+    padEl.appendChild(e);
+  }
+
+  /* ---------- wiring ----------------------------------------------------- */
+  hintBtn.addEventListener("click", function () {
+    const empties = [];
+    for (let i = 0; i < 81; i++) if (!puzzle[i]) empties.push(i);
+    if (!empties.length) { flash("Board is already full.", ""); return; }
+    const idx = empties[Math.floor(Math.random() * empties.length)];
+    puzzle[idx] = solution[idx];
+    selected = idx;
+    render();
+    flash("Filled one cell for you.", "");
+  });
+
+  checkBtn.addEventListener("click", function () {
+    if (!isComplete()) { flash("There are still empty cells.", "bad"); return; }
+    const bad = [];
+    for (let i = 0; i < 81; i++) if (puzzle[i] !== solution[i] || conflictsAt(i)) bad.push(i);
+    if (bad.length) { flash(bad.length + " cell(s) look wrong.", "bad"); }
+    else flash("Solved. Nice.", "ok");
+  });
+
+  solveBtn.addEventListener("click", function () {
+    puzzle = solution.slice();
+    selected = -1;
+    render();
+    flash("Revealed the solution.", "ok");
+  });
+
+  newBtn.addEventListener("click", newGame);
+
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key >= "1" && ev.key <= "9") { setValue(Number(ev.key)); return; }
+    if (ev.key === "0" || ev.key === "Backspace" || ev.key === "Delete") { ev.preventDefault(); setValue(0); return; }
+    const step = { ArrowUp: -9, ArrowDown: 9, ArrowLeft: -1, ArrowRight: 1 }[ev.key];
+    if (step !== undefined && selected >= 0) {
+      ev.preventDefault();
+      let r = (selected / 9) | 0, c = selected % 9;
+      if (step === -1 && c === 0) return;
+      if (step === 1 && c === 8) return;
+      const next = selected + step;
+      if (next >= 0 && next < 81) select(next);
+    }
+  });
+
+  buildGrid();
+  buildPad();
+  newGame();
+})();
+</script>
+</body>
+</html>
